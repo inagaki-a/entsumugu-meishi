@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>名刺をカメラで写す｜縁紡ぐ</title>
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/addons/"}}
+</script>
+<style>
+:root{--paper:#F5F3EE;--ink:#23262B;--sub:#5A5F67;--ai:#26476B;--night:#1E2F44;--ito:#B07A2A;--ito-text:#8C5E1C;--ito-night:#D7A85A;--on-dark:#F5F3EE;--on-dark-sub:#C9D2DD}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif;line-height:1.9;letter-spacing:.04em;-webkit-text-size-adjust:100%}
+.mincho{font-family:'Shippori Mincho','Hiragino Mincho ProN','Yu Mincho',serif}
+#ar{position:fixed;inset:0;background:#000;visibility:hidden;touch-action:manipulation}
+#ar video{object-fit:cover}
+#intro{position:fixed;inset:0;overflow:auto;display:flex;align-items:center;justify-content:center;padding:max(24px,env(safe-area-inset-top)) 24px max(24px,env(safe-area-inset-bottom));background:var(--paper)}
+.box{max-width:420px;width:100%}
+.eyebrow{display:flex;align-items:center;gap:12px;margin:0 0 20px}
+.eyebrow span{font-size:.8125rem;font-weight:700;letter-spacing:.16em;color:var(--ito-text)}
+h1{margin:0 0 16px;font-weight:600;font-size:1.625rem;line-height:1.6;letter-spacing:.03em;word-break:auto-phrase;text-wrap:balance}
+p{margin:0 0 16px}
+.small{font-size:.875rem;color:var(--sub);line-height:1.85}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;padding:0 30px;border-radius:999px;font:inherit;font-weight:700;font-size:1rem;letter-spacing:.06em;text-decoration:none;cursor:pointer;border:0}
+.btn.main{background:var(--ai);color:#fff}
+.btn.sub{background:transparent;color:var(--ai);border:1.5px solid var(--ai)}
+.btn:disabled{opacity:.6}
+.link{display:flex;align-items:center;justify-content:center;min-height:48px;color:var(--ai);font-weight:500;font-size:.9375rem}
+#err{display:none;margin:0 0 16px;padding:12px 16px;border:1px dashed var(--ito);border-radius:6px;background:#FBF1DF;color:#7A4B0E;font-size:.875rem;line-height:1.8}
+.hud{position:fixed;left:0;right:0;z-index:5;display:none;padding:0 16px;pointer-events:none;text-align:center}
+.hud span{display:inline-block;padding:8px 18px;border-radius:999px;background:rgba(30,47,68,.88);color:var(--on-dark);font-size:.875rem;line-height:1.7}
+#hint{top:max(16px,env(safe-area-inset-top))}
+#tap{top:max(64px,calc(env(safe-area-inset-top) + 48px));display:block;opacity:0;transition:opacity .8s}
+#tap.on{opacity:1}
+#guide{position:fixed;z-index:4;left:50%;top:42%;width:min(80vw,420px);aspect-ratio:91/55;transform:translate(-50%,-50%);border:2px dashed rgba(215,168,90,.95);border-radius:10px;display:none;pointer-events:none}
+#guide i{position:absolute;width:20px;height:20px;border:3px solid #D7A85A}
+#guide i:nth-child(1){left:-3px;top:-3px;border-right:0;border-bottom:0;border-radius:10px 0 0 0}
+#guide i:nth-child(2){right:-3px;top:-3px;border-left:0;border-bottom:0;border-radius:0 10px 0 0}
+#guide i:nth-child(3){left:-3px;bottom:-3px;border-right:0;border-top:0;border-radius:0 0 0 10px}
+#guide i:nth-child(4){right:-3px;bottom:-3px;border-left:0;border-top:0;border-radius:0 0 10px 0}
+#panel{position:fixed;z-index:7;left:0;right:0;bottom:0;padding:0 16px max(14px,env(safe-area-inset-bottom));transform:translateY(120%);transition:transform .8s cubic-bezier(.2,.8,.2,1)}
+#panel.show{transform:none}
+#panel .row{display:flex;gap:10px;max-width:460px;margin:0 auto}
+#panel .btn{min-height:52px;padding:0 14px;font-size:.9375rem}
+#panel .btn.sub{background:rgba(245,243,238,.96)}
+#close{position:fixed;z-index:6;top:max(12px,env(safe-area-inset-top));right:12px;display:none;min-height:44px;padding:0 16px;border-radius:999px;border:0;background:rgba(245,243,238,.95);color:var(--ink);font:inherit;font-size:.875rem;font-weight:500}
+</style>
+</head>
+<body>
+<div id="ar"></div>
+
+<main id="intro">
+ <div class="box">
+  <div class="eyebrow">
+   <svg width="56" height="12" viewBox="0 0 56 12" aria-hidden="true"><line x1="0" y1="6" x2="43" y2="6" stroke="#B07A2A" stroke-width="1.5"/><circle cx="49" cy="6" r="4.5" fill="none" stroke="#B07A2A" stroke-width="1.5"/></svg>
+   <span>縁紡ぐ</span>
+  </div>
+  <h1 class="mincho">名刺のおもてを、<br>カメラで写してみてください。</h1>
+  <p>濃い藍色の面を写すと、名刺の上に、金の糸が結ばれます。</p>
+  <p class="small">明るい場所で、名刺の全体が画面に入るようにすると、うまく動きます。</p>
+  <p id="err" role="alert"></p>
+  <button id="start" class="btn main" type="button">カメラを起動する</button>
+  <p class="small" style="margin:12px 0 8px">カメラの映像は、お使いの端末の中だけで処理します。送信も保存もしません。</p>
+  <a class="link" href="https://entsumugu.com/?utm_source=meishi">カメラを使わずに、サイトを見る</a>
+ </div>
+</main>
+
+<div id="hint" class="hud"><span>名刺のおもてを、枠に合わせて写してください</span></div>
+<div id="tap" class="hud"><span>金の結び目を、タップしてみてください</span></div>
+<div id="guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<button id="close" type="button">とじる</button>
+<section id="panel" aria-label="縁紡ぐのご案内">
+ <div class="row">
+  <a class="btn main" href="https://entsumugu.com/contact/?utm_source=meishi">無料で相談する</a>
+  <a class="btn sub" href="https://entsumugu.com/?utm_source=meishi">サイトを見る</a>
+ </div>
+</section>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const $ = (id) => document.getElementById(id);
+const CARD = { w: 91, h: 55 };          // 名刺の仕上がり(mm)
+const H = CARD.h / CARD.w;               // 名刺の幅を1としたときの高さ
+const KNOT = { x: 0, y: (CARD.h / 2 - 35.0) / CARD.w };  // 表の結び目の位置（印刷データと同じ。仕上がり左上から 45.5, 35.0 mm）
+const GOLD = 0xD7A85A;
+const FONT_M = "'Shippori Mincho','Hiragino Mincho ProN','Yu Mincho',serif";
+const FONT_G = "'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif";
+const KNOT_Z = 0.36;                     // 結び目が浮かぶ高さ（名刺の幅を1として）
+
+window.__ar = { state: 'idle', found: false };
+
+function showError(msg) {
+  const e = $('err'); e.textContent = msg; e.style.display = 'block';
+  $('start').disabled = false; $('start').textContent = 'もう一度ためす';
+}
+
+const ease = (t) => t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t);
+const easeOutBack = (t) => { t = Math.min(1, Math.max(0, t)); const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+
+/* ---- 部品 ---------------------------------------------------------- */
+
+const goldMat = () => new THREE.MeshStandardMaterial({ color: 0xE0B467, metalness: 1, roughness: 0.26, envMapIntensity: 1.25 });
+
+// 光のにじみ（結び目の後ろ）
+function glowTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grd.addColorStop(0, 'rgba(255,226,160,.85)'); grd.addColorStop(0.35, 'rgba(215,168,90,.32)'); grd.addColorStop(1, 'rgba(215,168,90,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+function dotTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,240,200,1)'); grd.addColorStop(0.4, 'rgba(235,190,100,.8)'); grd.addColorStop(1, 'rgba(215,168,90,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+// 文字の札（Sprite = 常にカメラを向く。傾いても読める）
+function labelSprite(text, { font, size, dot = false, bg = 'rgba(30,47,68,.94)', color = '#F5F3EE', pad = 1.1 }) {
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = font(size); const tw = m.measureText(text).width;
+  const hpx = Math.round(size * 2.1), dotW = dot ? size * 1.2 : 0;
+  const wpx = Math.round(tw + size * pad * 2 + dotW);
+  const c = document.createElement('canvas'); c.width = wpx; c.height = hpx;
+  const g = c.getContext('2d'), r = hpx / 2;
+  g.fillStyle = bg; g.beginPath();
+  g.moveTo(r, 0); g.arcTo(wpx, 0, wpx, hpx, r); g.arcTo(wpx, hpx, 0, hpx, r); g.arcTo(0, hpx, 0, 0, r); g.arcTo(0, 0, wpx, 0, r); g.fill();
+  g.textBaseline = 'middle'; g.textAlign = 'left';
+  if (dot) { g.strokeStyle = '#D7A85A'; g.lineWidth = size * 0.13; g.beginPath(); g.arc(size * pad + size * 0.34, hpx / 2, size * 0.3, 0, Math.PI * 2); g.stroke(); }
+  g.fillStyle = color; g.font = font(size); g.fillText(text, size * pad + dotW, hpx / 2 + size * 0.06);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthTest: false }));
+  const u = 0.0011;   // 1ピクセルあたりの大きさ
+  spr.userData.base = new THREE.Vector2(wpx * u, hpx * u);
+  spr.scale.set(0.0001, 0.0001, 1); spr.renderOrder = 20;
+  return spr;
+}
+
+function pointCloud(n, size, map) {
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  const m = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xFFE3A3, size, map, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+  m.renderOrder = 15; m.frustumCulled = false;
+  return m;
+}
+
+/* ---- 本体 ---------------------------------------------------------- */
+
+async function start() {
+  const btn = $('start'); btn.disabled = true; btn.textContent = 'カメラを起動しています…';
+  $('err').style.display = 'none'; $('ar').innerHTML = '';
+  if (!navigator.mediaDevices?.getUserMedia) { showError('このブラウザではカメラを使えません。ふつうにサイトをご覧ください。'); return; }
+  let MindARThree;
+  try { ({ MindARThree } = await import('./vendor/mindar-image-three.prod.js')); }
+  catch (e) { console.error(e); showError('読み込みに失敗しました。電波の良い場所で、もう一度ためしてください。'); return; }
+
+  const mindar = new MindARThree({
+    container: $('ar'),
+    imageTargetSrc: './assets/front-target.mind',
+    uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+    warmupTolerance: 3, missTolerance: 40, filterMinCF: 0.0003, filterBeta: 100,
+  });
+  const { renderer, scene, camera } = mindar;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(0.6, 1, 2); scene.add(key);
+
+  const anchor = mindar.addAnchor(0);
+
+  // 手ブレをならすための「舞台」。名刺の位置・向きを、少し遅れてゆったり追いかける
+  const stage = new THREE.Group(); stage.visible = false; scene.add(stage);
+
+  // 1. 名刺の結び目から立ちのぼる糸
+  const risePts = [];
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40, a = Math.PI * 2 * 1.6 * t, r = 0.10 * Math.pow(Math.sin(Math.PI * t), 0.8);
+    risePts.push(new THREE.Vector3(KNOT.x + r * Math.cos(a), KNOT.y + r * Math.sin(a), 0.004 + (KNOT_Z - 0.03) * Math.pow(t, 0.9)));
+  }
+  const riseGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(risePts), 200, 0.0045, 8, false);
+  const rise = new THREE.Mesh(riseGeo, goldMat()); riseGeo.setDrawRange(0, 0);
+  stage.add(rise);
+
+  // 2. 金の結び目（糸が編まれて、結び目になる）
+  const knotG = new THREE.Group(); knotG.position.set(KNOT.x, KNOT.y, KNOT_Z); stage.add(knotG);
+  const knotGeo = new THREE.TorusKnotGeometry(0.1, 0.0135, 420, 16, 2, 3);
+  const knot = new THREE.Mesh(knotGeo, goldMat()); knotGeo.setDrawRange(0, 0);
+  knotG.add(knot);
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 8), new THREE.MeshBasicMaterial({ visible: false })); knotG.add(hit);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), transparent: true, opacity: 0, depthTest: false, blending: THREE.AdditiveBlending }));
+  glow.scale.set(0.9, 0.9, 1); glow.renderOrder = 5; knotG.add(glow);
+
+  // 3. 光の粒（結び目のまわりをただよう）と、結ばれた瞬間のはじける粒
+  const dotTex = dotTexture();
+  const dust = pointCloud(150, 0.026, dotTex); knotG.add(dust);
+  const dustSeed = Array.from({ length: 150 }, () => ({ a: Math.random() * 6.283, r: 0.1 + Math.random() * 0.3, z: (Math.random() - 0.5) * 0.4, sp: (0.15 + Math.random() * 0.5) * (Math.random() < 0.5 ? -1 : 1), ph: Math.random() * 6.283 }));
+  const burst = pointCloud(90, 0.034, dotTex); knotG.add(burst);
+  const burstVel = Array.from({ length: 90 }, () => { const a = Math.random() * 6.283, b = Math.acos(2 * Math.random() - 1), v = 0.18 + Math.random() * 0.4; return new THREE.Vector3(Math.sin(b) * Math.cos(a) * v, Math.sin(b) * Math.sin(a) * v, Math.cos(b) * v); });
+  let burstAt = -1;
+  const fire = (s) => { burstAt = s; try { navigator.vibrate && navigator.vibrate(18); } catch (e) { /* 端末による */ } };
+
+  // 4. 文字の札。結び目から飛び出して、並ぶ
+  const title = labelSprite('ITで、縁を紡ぐ。', { font: (s) => `600 ${s}px ${FONT_M}`, size: 64, pad: 1.0 });
+  const items = ['AIで作る、御社専用のWebシステム', 'AIで作るホームページ', '業務効率化のご相談']
+    .map((t) => labelSprite(t, { font: (s) => `500 ${s}px ${FONT_G}`, size: 46, dot: true }));
+  const slots = [new THREE.Vector3(0, H / 2 + 0.22, 0.30)];
+  items.forEach((_, i) => slots.push(new THREE.Vector3(0, -H / 2 - 0.15 - i * 0.135, 0.22)));
+  const labels = [title, ...items];
+  labels.forEach((l) => { l.position.copy(knotG.position); stage.add(l); });
+
+  try { await mindar.start(); }
+  catch (e) {
+    console.error(e);
+    mindar.stop?.();
+    $('ar').style.visibility = 'hidden';
+    showError(e && /permission|denied|NotAllowed/i.test(String(e.name || e)) ? 'カメラの使用が許可されていません。設定で許可するか、カメラを使わずにサイトをご覧ください。' : 'カメラを起動できませんでした。ふつうにサイトをご覧ください。');
+    return;
+  }
+  $('intro').style.display = 'none'; $('ar').style.visibility = 'visible';
+  $('hint').style.display = 'block'; $('guide').style.display = 'block'; $('close').style.display = 'block';
+  window.__ar.state = 'running';
+
+  let t0 = null, lastSeen = 0, stageInit = false, spin = 0;
+  const stats = (window.__ar.stats = { frames: 0, visible: 0, lostEvents: 0 });
+  anchor.onTargetFound = () => {
+    window.__ar.found = true;
+    $('hint').style.display = 'none'; $('guide').style.display = 'none';
+    if (t0 === null) { t0 = performance.now(); setTimeout(() => $('panel').classList.add('show'), 4300); setTimeout(() => $('tap').classList.add('on'), 5200); }
+  };
+  anchor.onTargetLost = () => { window.__ar.found = false; stats.lostEvents++; };
+
+  // タップ: 結び目に触れると、はじけて回る
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  $('ar').addEventListener('pointerdown', (ev) => {
+    if (t0 === null || !stage.visible) return;
+    const r = $('ar').getBoundingClientRect();
+    ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    if (ray.intersectObject(hit).length) { spin = 1; fire((performance.now() - t0) / 1000); $('tap').classList.remove('on'); }
+  });
+
+  const tp = new THREE.Vector3(), tq = new THREE.Quaternion(), ts = new THREE.Vector3();
+  let prev = performance.now(), rotZ = 0;
+  renderer.setAnimationLoop(() => {
+    const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000); prev = now;
+
+    // 舞台を、名刺にゆったり追従させる（手ブレを吸収する）
+    if (anchor.group.visible) {
+      anchor.group.matrix.decompose(tp, tq, ts);
+      if (!stageInit) { stage.position.copy(tp); stage.quaternion.copy(tq); stage.scale.copy(ts); stageInit = true; }
+      else { const k = 1 - Math.exp(-dt * 4.5); stage.position.lerp(tp, k); stage.quaternion.slerp(tq, k); stage.scale.lerp(ts, k); }
+      if (window.__ar.trace) window.__ar.trace.push([tp.x, tp.y, tp.z, stage.position.x, stage.position.y, stage.position.z]);
+      lastSeen = now;
+    }
+    stage.visible = stageInit && now - lastSeen < 3000;
+
+    if (t0 !== null) {
+      stats.frames++; if (anchor.group.visible) stats.visible++;
+      const s = (now - t0) / 1000;
+
+      // 0〜1.4秒: 名刺の結び目から、糸が渦をまいて立ちのぼる
+      riseGeo.setDrawRange(0, Math.floor(riseGeo.index.count * ease(s / 1.4) / 3) * 3);
+      rise.material.opacity = 1;
+      // 1.0〜3.2秒: 糸が編まれて、金の結び目になる
+      const w = ease((s - 1.0) / 2.2);
+      knotGeo.setDrawRange(0, Math.floor(knotGeo.index.count * w / 3) * 3);
+      knot.scale.setScalar(0.55 + 0.45 * w);
+      glow.material.opacity = ease((s - 1.0) / 2.2) * (0.75 + 0.15 * Math.sin(s * 2.4));
+      // 結び目はゆっくり回り、ふわふわ浮かぶ
+      spin = Math.max(0, spin - dt * 0.7);
+      rotZ += dt * (0.55 + 5.5 * spin * spin + (s < 3.2 ? 1.8 * (1 - ease((s - 1) / 2.2)) : 0));
+      knotG.rotation.set(0.55 + 0.1 * Math.sin(s * 0.7), 0.15 * Math.sin(s * 0.5), rotZ);
+      knotG.position.z = KNOT_Z + 0.014 * Math.sin(s * 1.6) + 0.04 * spin;
+      // 光の粒
+      const da = dust.geometry.attributes.position;
+      dustSeed.forEach((d, i) => da.setXYZ(i, Math.cos(d.a + s * d.sp) * d.r, Math.sin(d.a + s * d.sp) * d.r * 0.85, d.z + 0.03 * Math.sin(s * 1.2 + d.ph)));
+      da.needsUpdate = true;
+      dust.material.opacity = 0.85 * ease((s - 1.2) / 1.5);
+      // 結ばれた瞬間（3.2秒）に、光がはじける
+      if (burstAt < 0 && s > 3.2) fire(s);
+      const bu = (s - burstAt) / 1.4, ba = burst.geometry.attributes.position;
+      if (burstAt >= 0 && bu >= 0 && bu < 1) { const e = 1 - Math.pow(1 - bu, 3); burstVel.forEach((v, i) => ba.setXYZ(i, v.x * e * 1.6, v.y * e * 1.6, v.z * e * 1.6)); ba.needsUpdate = true; burst.material.opacity = 1 - bu; }
+      else burst.material.opacity = 0;
+      // 札が結び目から飛び出して並ぶ（3.3秒〜）
+      labels.forEach((l, i) => {
+        const u = (s - 3.3 - i * 0.28) / 0.9, k = Math.max(0, Math.min(1, u)), b = easeOutBack(k);
+        l.position.lerpVectors(knotG.position, slots[i], b);
+        const sc = 0.0001 + (1 - 0.0001) * b;
+        l.scale.set(l.userData.base.x * sc, l.userData.base.y * sc, 1);
+        l.material.opacity = Math.min(1, k * 1.6);
+      });
+    }
+    renderer.render(scene, camera);
+  });
+
+  const stop = () => {
+    renderer.setAnimationLoop(null); mindar.stop();
+    $('ar').style.visibility = 'hidden'; ['hint', 'guide', 'close'].forEach((i) => $(i).style.display = 'none');
+    $('panel').classList.remove('show'); $('tap').classList.remove('on');
+    $('intro').style.display = 'flex'; btn.disabled = false; btn.textContent = 'もう一度写す'; window.__ar.state = 'idle'; window.__ar.found = false;
+  };
+  $('close').onclick = stop;
+  window.__ar.stop = stop;
+}
+
+$('start').addEventListener('click', start);
+</script>
+</body>
+</html>
