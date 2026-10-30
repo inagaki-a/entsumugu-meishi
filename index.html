@@ -70,7 +70,7 @@ p{margin:0 0 16px}
 </main>
 
 <div id="hint" class="hud"><span>名刺のおもてを、枠に合わせて写してください</span></div>
-<div id="tap" class="hud"><span>金の結び目を、タップしてみてください</span></div>
+<div id="tap" class="hud"><span>画面をタップしてみてください</span></div>
 <div id="guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <button id="close" type="button">とじる</button>
 <section id="panel" aria-label="縁紡ぐのご案内">
@@ -239,17 +239,10 @@ async function start() {
   };
   anchor.onTargetLost = () => { window.__ar.found = false; stats.lostEvents++; };
 
-  // タップ: 結び目に触れると、はじけて回る
-  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), kp = new THREE.Vector3();
-  $('ar').addEventListener('pointerdown', (ev) => {
+  // タップ: 画面のどこをタップしても、光がはじけて結び目が回る
+  $('ar').addEventListener('pointerdown', () => {
     if (t0 === null || !stage.visible) return;
-    const r = $('ar').getBoundingClientRect();
-    ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
-    // 結び目の画面上の位置から、指までの距離でも判定する（指は太いので、約80pxまでを「触れた」とする）
-    knotG.getWorldPosition(kp); kp.project(camera);
-    const dx = ((kp.x + 1) / 2 - (ev.clientX - r.left) / r.width) * r.width, dy = ((1 - kp.y) / 2 - (ev.clientY - r.top) / r.height) * r.height;
-    if (ray.intersectObject(hit).length || (kp.z < 1 && Math.hypot(dx, dy) < 80)) { spin = 1; fire((performance.now() - t0) / 1000); $('tap').classList.remove('on'); }
+    spin = 1; fire((performance.now() - t0) / 1000); $('tap').classList.remove('on');
   });
 
   const tp = new THREE.Vector3(), tq = new THREE.Quaternion(), ts = new THREE.Vector3();
@@ -257,15 +250,14 @@ async function start() {
   renderer.setAnimationLoop(() => {
     const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000); prev = now;
 
-    // 舞台を、名刺にゆったり追従させる（手ブレを吸収する）
-    if (anchor.group.visible) {
+    // 名刺を最初に見つけた瞬間に、舞台を画面の中央へ置いて固定する。
+    // 以後は名刺を追わない（手ブレで揺れない。名刺が枠から外れても表示は続く）
+    if (anchor.group.visible && !stageInit) {
       anchor.group.matrix.decompose(tp, tq, ts);
-      if (!stageInit) { stage.position.copy(tp); stage.quaternion.copy(tq); stage.scale.copy(ts); stageInit = true; }
-      else { const k = 1 - Math.exp(-dt * 4.5); stage.position.lerp(tp, k); stage.quaternion.slerp(tq, k); stage.scale.lerp(ts, k); }
-      if (window.__ar.trace) window.__ar.trace.push([tp.x, tp.y, tp.z, stage.position.x, stage.position.y, stage.position.z]);
-      lastSeen = now;
+      stage.position.set(0, 0, tp.z); stage.quaternion.identity(); stage.scale.copy(ts); stageInit = true;
     }
-    stage.visible = stageInit && now - lastSeen < 3000;
+    if (anchor.group.visible) lastSeen = now;
+    stage.visible = stageInit;
 
     if (t0 !== null) {
       stats.frames++; if (anchor.group.visible) stats.visible++;
