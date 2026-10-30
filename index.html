@@ -240,13 +240,16 @@ async function start() {
   anchor.onTargetLost = () => { window.__ar.found = false; stats.lostEvents++; };
 
   // タップ: 結び目に触れると、はじけて回る
-  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), kp = new THREE.Vector3();
   $('ar').addEventListener('pointerdown', (ev) => {
     if (t0 === null || !stage.visible) return;
     const r = $('ar').getBoundingClientRect();
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    if (ray.intersectObject(hit).length) { spin = 1; fire((performance.now() - t0) / 1000); $('tap').classList.remove('on'); }
+    // 結び目の画面上の位置から、指までの距離でも判定する（指は太いので、約80pxまでを「触れた」とする）
+    knotG.getWorldPosition(kp); kp.project(camera);
+    const dx = ((kp.x + 1) / 2 - (ev.clientX - r.left) / r.width) * r.width, dy = ((1 - kp.y) / 2 - (ev.clientY - r.top) / r.height) * r.height;
+    if (ray.intersectObject(hit).length || (kp.z < 1 && Math.hypot(dx, dy) < 80)) { spin = 1; fire((performance.now() - t0) / 1000); $('tap').classList.remove('on'); }
   });
 
   const tp = new THREE.Vector3(), tq = new THREE.Quaternion(), ts = new THREE.Vector3();
