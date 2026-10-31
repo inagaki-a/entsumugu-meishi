@@ -84,17 +84,12 @@ p{margin:0 0 16px}
 </section>
 
 <script type="module">
-import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-
 const $ = (id) => document.getElementById(id);
-const CARD = { w: 91, h: 55 };          // 名刺の仕上がり(mm)
-const H = CARD.h / CARD.w;               // 名刺の幅を1としたときの高さ
-const KNOT = { x: 0, y: (CARD.h / 2 - 35.0) / CARD.w };  // 表の結び目の位置（印刷データと同じ。仕上がり左上から 45.5, 35.0 mm）
-const GOLD = 0xD7A85A;
 const FONT_M = "'Shippori Mincho','Hiragino Mincho ProN','Yu Mincho',serif";
 const FONT_G = "'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif";
-const KNOT_Z = 0.36;                     // 結び目が浮かぶ高さ（名刺の幅を1として）
+const TITLE = 'ITで、縁を紡ぐ。';
+const SERVICES = ['AIで作る、御社専用のWebシステム', 'AIで作るホームページ', '業務効率化のご相談'];
+const GOLD = '215,168,90', PAPER = '#F5F3EE', INK = '#23262B', ITO = '#B07A2A';
 
 window.__ar = { state: 'idle', found: false };
 
@@ -103,56 +98,163 @@ function showError(msg) {
   $('start').disabled = false; $('start').textContent = 'もう一度ためす';
 }
 
-const ease = (t) => t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t);
-const easeOutBack = (t) => { t = Math.min(1, Math.max(0, t)); const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const clamp01 = (t) => Math.min(1, Math.max(0, t));
+const ease = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
+const easeOut = (t) => 1 - Math.pow(1 - clamp01(t), 3);
+const lerp = (a, b, t) => a + (b - a) * t;
 
-/* ---- 部品 ---------------------------------------------------------- */
+/* ---- 演出（画面に直接描く。名刺の位置には依存しないので、手ブレで揺れない）---- */
+// 流れ: 画面が暗くなる → 5本の金の糸が集まる → 屋号のマークが結ばれる
+//       → 糸が「ITで、縁を紡ぐ。」を書くようにたどる → 糸が下へ伸び、3つのサービスがつながって並ぶ
+//       → タップすると、光が糸を伝わって3つのサービスに届く
 
-const goldMat = () => new THREE.MeshStandardMaterial({ color: 0xE0B467, metalness: 1, roughness: 0.26, envMapIntensity: 1.25 });
-
-// 光のにじみ（結び目の後ろ）
-function glowTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const g = c.getContext('2d'), grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-  grd.addColorStop(0, 'rgba(255,226,160,.85)'); grd.addColorStop(0.35, 'rgba(215,168,90,.32)'); grd.addColorStop(1, 'rgba(215,168,90,0)');
-  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
-  return new THREE.CanvasTexture(c);
-}
-function dotTexture() {
+const dotImg = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 64;
-  const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,240,200,1)'); grd.addColorStop(0.4, 'rgba(235,190,100,.8)'); grd.addColorStop(1, 'rgba(215,168,90,0)');
-  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,240,200,1)'); gr.addColorStop(0.35, 'rgba(235,190,100,.7)'); gr.addColorStop(1, 'rgba(215,168,90,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return c;
+})();
+
+function pillPath(g, x, y, w, h) {
+  const r = h / 2;
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
-// 文字の札（Sprite = 常にカメラを向く。傾いても読める）
-function labelSprite(text, { font, size, dot = false, bg = 'rgba(30,47,68,.94)', color = '#F5F3EE', pad = 1.1 }) {
-  const m = document.createElement('canvas').getContext('2d');
-  m.font = font(size); const tw = m.measureText(text).width;
-  const hpx = Math.round(size * 2.1), dotW = dot ? size * 1.2 : 0;
-  const wpx = Math.round(tw + size * pad * 2 + dotW);
-  const c = document.createElement('canvas'); c.width = wpx; c.height = hpx;
-  const g = c.getContext('2d'), r = hpx / 2;
-  g.fillStyle = bg; g.beginPath();
-  g.moveTo(r, 0); g.arcTo(wpx, 0, wpx, hpx, r); g.arcTo(wpx, hpx, 0, hpx, r); g.arcTo(0, hpx, 0, 0, r); g.arcTo(0, 0, wpx, 0, r); g.fill();
-  g.textBaseline = 'middle'; g.textAlign = 'left';
-  if (dot) { g.strokeStyle = '#D7A85A'; g.lineWidth = size * 0.13; g.beginPath(); g.arc(size * pad + size * 0.34, hpx / 2, size * 0.3, 0, Math.PI * 2); g.stroke(); }
-  g.fillStyle = color; g.font = font(size); g.fillText(text, size * pad + dotW, hpx / 2 + size * 0.06);
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthTest: false }));
-  const u = 0.0011;   // 1ピクセルあたりの大きさ
-  spr.userData.base = new THREE.Vector2(wpx * u, hpx * u);
-  spr.scale.set(0.0001, 0.0001, 1); spr.renderOrder = 20;
-  return spr;
-}
+function makeFx() {
+  const cv = document.createElement('canvas');
+  cv.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;z-index:3;pointer-events:none;display:none';
+  document.body.appendChild(cv);
+  const g = cv.getContext('2d');
+  let W = 0, HH = 0;
+  const fit = () => { const d = Math.min(2, window.devicePixelRatio || 1); W = window.innerWidth; HH = window.innerHeight; cv.width = Math.round(W * d); cv.height = Math.round(HH * d); g.setTransform(d, 0, 0, d, 0, 0); };
+  window.addEventListener('resize', fit); fit();
 
-function pointCloud(n, size, map) {
-  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-  const m = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xFFE3A3, size, map, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
-  m.renderOrder = 15; m.frustumCulled = false;
-  return m;
+  let ambient = [], bursts = [], ripples = [], pulseAt = -99;
+  const glow = (x, y, r, a) => { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = clamp01(a); g.drawImage(dotImg, x - r, y - r, r * 2, r * 2); g.restore(); };
+
+  // 画面の大きさから、各部分の位置を決める
+  const cache = {};
+  function layout() {
+    const u = Math.min(W, 460) / 390, cx = W / 2, fs = 34 * u;
+    if (cache.u !== u) {
+      g.font = `600 ${fs}px ${FONT_M}`; cache.tw = g.measureText(TITLE).width;
+      g.font = `500 ${15 * u}px ${FONT_G}`; cache.pw = SERVICES.map((t) => g.measureText(t).width + 18 * u * 2 + 24 * u);
+      cache.u = u;
+    }
+    const base = 100 * u, ulY = base + 16 * u, y0 = ulY + 56 * u, pitch = 62 * u;
+    const height = y0 + 2 * pitch + 22 * u + 22 * u;
+    const oy = Math.max(44 * u + 22 * u, (HH - 150 - height) / 2 + 22 * u);   // 下の150pxは、ボタンの場所
+    return { u, cx, fs, tw: cache.tw, pw: cache.pw, x0: cx - cache.tw / 2, oy, base, ulY, ys: [0, 1, 2].map((i) => oy + y0 + i * pitch) };
+  }
+
+  function draw(s) {
+    g.clearRect(0, 0, W, HH);
+    const { u, cx, fs, tw, pw, x0, oy, base, ulY, ys } = layout();
+    // カメラの映像を紺色で暗くして、文字を読みやすくする
+    g.fillStyle = `rgba(18,30,46,${0.82 * ease(s / 1.0)})`; g.fillRect(0, 0, W, HH);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+
+    // 1. 5本の糸が、画面のふちから中央上のマークへ集まる
+    const lx = cx, ly = oy;
+    if (s < 2.1) {
+      const starts = [[-0.1 * W, 0.38 * HH], [1.1 * W, 0.55 * HH], [0.15 * W, 1.05 * HH], [0.88 * W, -0.06 * HH], [-0.08 * W, -0.04 * HH]];
+      starts.forEach((S, i) => {
+        const p = (s - 0.1 - i * 0.1) / 1.2; if (p <= 0) return;
+        const dx = lx - S[0], dy = ly - S[1], dist = Math.hypot(dx, dy), nx = -dy / dist, ny = dx / dist, sg = i % 2 ? -1 : 1;
+        const c1 = [S[0] + dx * 0.35 + nx * dist * 0.28 * sg, S[1] + dy * 0.35 + ny * dist * 0.28 * sg];
+        const c2 = [S[0] + dx * 0.7 - nx * dist * 0.16 * sg, S[1] + dy * 0.7 - ny * dist * 0.16 * sg];
+        const at = (t) => { const m = 1 - t; return [m * m * m * S[0] + 3 * m * m * t * c1[0] + 3 * m * t * t * c2[0] + t * t * t * lx, m * m * m * S[1] + 3 * m * m * t * c1[1] + 3 * m * t * t * c2[1] + t * t * t * ly]; };
+        const head = easeOut(Math.min(1, p)), tail = p <= 1 ? Math.max(0, head - 0.4) : 0.6 + 0.4 * clamp01((p - 1) / 0.35);
+        if (tail >= 1) return;
+        let prev = at(tail);
+        for (let j = 1; j <= 22; j++) {
+          const f = j / 22, cur = at(lerp(tail, head, f));
+          g.strokeStyle = `rgba(${GOLD},${0.95 * Math.pow(f, 1.4)})`; g.lineWidth = (0.6 + 1.7 * f) * u;
+          g.beginPath(); g.moveTo(prev[0], prev[1]); g.lineTo(cur[0], cur[1]); g.stroke(); prev = cur;
+        }
+        if (p < 1.05) glow(prev[0], prev[1], 18 * u, 0.95);
+      });
+    }
+
+    // 2. 屋号のマーク（サイトのロゴと同じ形）が結ばれる
+    if (s > 1.25) {
+      const k = easeOut((s - 1.25) / 0.55), fl = clamp01((s - 1.25) / 0.9);
+      glow(lx, ly, 100 * u, 0.95 * (1 - fl));
+      g.strokeStyle = `rgba(${GOLD},${0.8 * (1 - fl)})`; g.lineWidth = 2 * u; g.beginPath(); g.arc(lx, ly, 22 * u + 80 * u * easeOut(fl), 0, 6.283); g.stroke();
+      g.save(); g.translate(lx, ly); const sc = (46 * u / 34) * (0.6 + 0.4 * k); g.scale(sc, sc); g.globalAlpha = k; g.translate(-17, -17);
+      g.strokeStyle = PAPER; g.lineWidth = 1.5; g.beginPath(); g.arc(17, 17, 15.5, 0, 6.283); g.stroke();
+      g.strokeStyle = `rgb(${GOLD})`; g.lineWidth = 1.8; g.stroke(new Path2D('M6 21 C 11 9, 17 9, 17 17 C 17 25, 23 25, 28 13'));
+      g.fillStyle = `rgb(${GOLD})`; g.beginPath(); g.arc(17, 17, 2.4, 0, 6.283); g.fill();
+      g.restore();
+    }
+    if (s > 1.8) {
+      g.globalAlpha = ease((s - 1.8) / 0.5); g.fillStyle = '#C9D2DD'; g.font = `500 ${14 * u}px ${FONT_M}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('縁紡ぐ', cx, oy + 44 * u); g.globalAlpha = 1;
+    }
+
+    // 3. 糸が、キャッチコピーを書くようにたどる。そのあと、下線になって、先に輪ができる
+    const midY = oy + base - fs * 0.36, ulYA = oy + ulY;
+    if (s >= 2.0) {
+      const p = ease((s - 2.0) / 1.8), f = ease((s - 3.8) / 0.7), tipX = x0 + tw * p;
+      g.save(); g.beginPath(); g.rect(x0 - 8, oy + base - fs * 1.1, tipX - x0 + 8, fs * 1.5); g.clip();
+      g.fillStyle = PAPER; g.font = `600 ${fs}px ${FONT_M}`; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText(TITLE, x0, oy + base); g.restore();
+      const yAt = (x) => lerp(midY, ulYA, f) + fs * 0.5 * (1 - f) * Math.sin(((x - x0) / tw) * Math.PI * 5);
+      const grad = g.createLinearGradient(x0, 0, tipX + 1, 0); grad.addColorStop(0, `rgba(${GOLD},.25)`); grad.addColorStop(1, `rgba(${GOLD},.95)`);
+      const trail = (lw, st) => { g.strokeStyle = st; g.lineWidth = lw; g.beginPath(); for (let x = x0; x <= tipX; x += 5) { const y = yAt(x); x === x0 ? g.moveTo(x, y) : g.lineTo(x, y); } g.lineTo(tipX, yAt(tipX)); g.stroke(); };
+      if (tipX > x0 + 2) { trail(7 * u, `rgba(${GOLD},.14)`); trail(2 * u, grad); }
+      if (p < 1 || f < 1) glow(tipX, yAt(tipX), 24 * u, 0.95 * (1 - f));
+      if (f > 0.5) { const a = ease((f - 0.5) / 0.5); g.strokeStyle = `rgba(${GOLD},${a})`; g.lineWidth = 1.6 * u; g.beginPath(); g.moveTo(x0 + tw, ulYA); g.lineTo(x0 + tw + 7.5 * u, ulYA); g.stroke(); g.beginPath(); g.arc(x0 + tw + 12 * u, ulYA, 4.5 * u, 0, 6.283); g.stroke(); }
+    }
+
+    // 4. 糸が下へ伸びて、3つのサービスをつなぐ
+    const lastC = ys[2], q = ease((s - 4.0) / 1.5), tipY = lerp(ulYA, lastC, q);
+    if (s >= 4.0) {
+      g.strokeStyle = `rgba(${GOLD},.14)`; g.lineWidth = 7 * u; g.beginPath(); g.moveTo(cx, ulYA); g.lineTo(cx, tipY); g.stroke();
+      g.strokeStyle = `rgba(${GOLD},.95)`; g.lineWidth = 1.7 * u; g.beginPath(); g.moveTo(cx, ulYA); g.lineTo(cx, tipY); g.stroke();
+      if (q < 1) glow(cx, tipY, 20 * u, 0.9);
+    }
+    const pulseT = (s - pulseAt) / 0.9, pulsing = pulseT >= 0 && pulseT <= 1, py = lerp(ulYA, lastC, ease(pulseT));
+    SERVICES.forEach((t, i) => {
+      const yi = ys[i], k = clamp01((tipY - (yi - 36 * u)) / (30 * u)); if (s < 4.0 || k <= 0) return;
+      const w = pw[i], h = 44 * u, gl = pulsing ? Math.max(0, 1 - Math.abs(py - yi) / (55 * u)) : 0;
+      if (i < 2) { const gy = (yi + ys[i + 1]) / 2; if (tipY > gy) { g.fillStyle = 'rgb(18,30,46)'; g.strokeStyle = `rgb(${GOLD})`; g.lineWidth = 1.6 * u; g.beginPath(); g.arc(cx, gy, 4 * u, 0, 6.283); g.fill(); g.stroke(); } }
+      g.save(); g.translate(cx, yi); const sc = 0.86 + 0.14 * easeOut(k) + 0.04 * gl; g.scale(sc, sc); g.globalAlpha = easeOut(k);
+      pillPath(g, -w / 2, -h / 2, w, h); g.fillStyle = 'rgba(245,243,238,.97)'; g.fill();
+      if (gl > 0) { g.strokeStyle = `rgba(${GOLD},${gl})`; g.lineWidth = 3 * u; g.stroke(); }
+      g.strokeStyle = ITO; g.lineWidth = 2 * u; g.beginPath(); g.arc(-w / 2 + 18 * u + 7 * u, 0, 5.5 * u, 0, 6.283); g.stroke();
+      g.fillStyle = INK; g.font = `500 ${15 * u}px ${FONT_G}`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(t, -w / 2 + 18 * u + 24 * u, 1 * u);
+      g.restore();
+    });
+
+    // 5. ただよう光の粒
+    if (s > 2.4) ambient.forEach((a) => {
+      const al = ease((s - 2.4) / 1.5) * (0.3 + 0.3 * Math.sin(s * 1.6 + a.ph));
+      glow(a.fx * W + Math.sin(s * 0.6 + a.ph) * 10, (((a.fy * HH - s * a.sp) % HH) + HH) % HH, a.r * u * 2.4, al);
+    });
+
+    // 6. タップ: 光が糸を伝わって、3つのサービスに届く。タップした場所から輪が広がる
+    if (pulsing) { glow(cx, py, 26 * u, 0.7); if (pulseT < 0.25) glow(cx, midY, 130 * u, 0.5 * (1 - pulseT / 0.25)); }
+    ripples = ripples.filter((r) => s - r.t < 1.3);
+    ripples.forEach((r) => {
+      [0, 0.18].forEach((d) => { const p = (s - r.t - d) / 1.1; if (p <= 0 || p >= 1) return; g.strokeStyle = `rgba(${GOLD},${0.75 * (1 - p)})`; g.lineWidth = (0.6 + 2.2 * (1 - p)) * u; g.beginPath(); g.arc(r.x, r.y, 150 * u * easeOut(p), 0, 6.283); g.stroke(); });
+    });
+    bursts = bursts.filter((b) => s - b.t < 0.9);
+    bursts.forEach((b) => { const a = (s - b.t) / 0.9, e = easeOut(a); glow(b.x + b.vx * e, b.y + b.vy * e, 8 * u, 1 - a); });
+  }
+
+  return {
+    reset() { ambient = Array.from({ length: 26 }, () => ({ fx: Math.random(), fy: Math.random(), sp: 6 + Math.random() * 14, ph: Math.random() * 6.283, r: 2 + Math.random() * 3 })); bursts = []; ripples = []; pulseAt = -99; },
+    show() { cv.style.display = 'block'; }, hide() { cv.style.display = 'none'; g.clearRect(0, 0, W, HH); },
+    draw,
+    tap(x, y, s) {
+      ripples.push({ x, y, t: s }); pulseAt = s;
+      for (let i = 0; i < 18; i++) { const a = Math.random() * 6.283, v = 40 + Math.random() * 90; bursts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: s }); }
+    },
+  };
 }
+const FX = makeFx();
+/* ---- 演出ここまで ---- */
 
 /* ---- 本体 ---------------------------------------------------------- */
 
@@ -170,53 +272,8 @@ async function start() {
     uiLoading: 'no', uiScanning: 'no', uiError: 'no',
     warmupTolerance: 3, missTolerance: 40, filterMinCF: 0.0003, filterBeta: 100,
   });
-  const { renderer, scene, camera } = mindar;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
-  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
-  const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(0.6, 1, 2); scene.add(key);
-
-  const anchor = mindar.addAnchor(0);
-
-  // 手ブレをならすための「舞台」。名刺の位置・向きを、少し遅れてゆったり追いかける
-  const stage = new THREE.Group(); stage.visible = false; scene.add(stage);
-
-  // 1. 名刺の結び目から立ちのぼる糸
-  const risePts = [];
-  for (let i = 0; i <= 40; i++) {
-    const t = i / 40, a = Math.PI * 2 * 1.6 * t, r = 0.10 * Math.pow(Math.sin(Math.PI * t), 0.8);
-    risePts.push(new THREE.Vector3(KNOT.x + r * Math.cos(a), KNOT.y + r * Math.sin(a), 0.004 + (KNOT_Z - 0.03) * Math.pow(t, 0.9)));
-  }
-  const riseGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(risePts), 200, 0.0045, 8, false);
-  const rise = new THREE.Mesh(riseGeo, goldMat()); riseGeo.setDrawRange(0, 0);
-  stage.add(rise);
-
-  // 2. 金の結び目（糸が編まれて、結び目になる）
-  const knotG = new THREE.Group(); knotG.position.set(KNOT.x, KNOT.y, KNOT_Z); stage.add(knotG);
-  const knotGeo = new THREE.TorusKnotGeometry(0.1, 0.0135, 420, 16, 2, 3);
-  const knot = new THREE.Mesh(knotGeo, goldMat()); knotGeo.setDrawRange(0, 0);
-  knotG.add(knot);
-  const hit = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 8), new THREE.MeshBasicMaterial({ visible: false })); knotG.add(hit);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), transparent: true, opacity: 0, depthTest: false, blending: THREE.AdditiveBlending }));
-  glow.scale.set(0.9, 0.9, 1); glow.renderOrder = 5; knotG.add(glow);
-
-  // 3. 光の粒（結び目のまわりをただよう）と、結ばれた瞬間のはじける粒
-  const dotTex = dotTexture();
-  const dust = pointCloud(150, 0.026, dotTex); knotG.add(dust);
-  const dustSeed = Array.from({ length: 150 }, () => ({ a: Math.random() * 6.283, r: 0.1 + Math.random() * 0.3, z: (Math.random() - 0.5) * 0.4, sp: (0.15 + Math.random() * 0.5) * (Math.random() < 0.5 ? -1 : 1), ph: Math.random() * 6.283 }));
-  const burst = pointCloud(90, 0.034, dotTex); knotG.add(burst);
-  const burstVel = Array.from({ length: 90 }, () => { const a = Math.random() * 6.283, b = Math.acos(2 * Math.random() - 1), v = 0.18 + Math.random() * 0.4; return new THREE.Vector3(Math.sin(b) * Math.cos(a) * v, Math.sin(b) * Math.sin(a) * v, Math.cos(b) * v); });
-  let burstAt = -1;
-  const fire = (s) => { burstAt = s; try { navigator.vibrate && navigator.vibrate(18); } catch (e) { /* 端末による */ } };
-
-  // 4. 文字の札。結び目から飛び出して、並ぶ
-  const title = labelSprite('ITで、縁を紡ぐ。', { font: (s) => `600 ${s}px ${FONT_M}`, size: 64, pad: 1.0 });
-  const items = ['AIで作る、御社専用のWebシステム', 'AIで作るホームページ', '業務効率化のご相談']
-    .map((t) => labelSprite(t, { font: (s) => `500 ${s}px ${FONT_G}`, size: 46, dot: true }));
-  const slots = [new THREE.Vector3(0, H / 2 + 0.22, 0.30)];
-  items.forEach((_, i) => slots.push(new THREE.Vector3(0, -H / 2 - 0.15 - i * 0.135, 0.22)));
-  const labels = [title, ...items];
-  labels.forEach((l) => { l.position.copy(knotG.position); stage.add(l); });
+  const { renderer } = mindar;
+  const anchor = mindar.addAnchor(0);   // 名刺を見つけたことを知るためだけに使う（演出は名刺の位置に依存しない）
 
   try { await mindar.start(); }
   catch (e) {
@@ -230,76 +287,27 @@ async function start() {
   $('hint').style.display = 'block'; $('guide').style.display = 'block'; $('close').style.display = 'block';
   window.__ar.state = 'running';
 
-  let t0 = null, lastSeen = 0, stageInit = false, spin = 0;
-  const stats = (window.__ar.stats = { frames: 0, visible: 0, lostEvents: 0 });
+  let t0 = null; const timers = [];
+  FX.reset();
   anchor.onTargetFound = () => {
     window.__ar.found = true;
     $('hint').style.display = 'none'; $('guide').style.display = 'none';
-    if (t0 === null) { t0 = performance.now(); setTimeout(() => $('panel').classList.add('show'), 4300); setTimeout(() => $('tap').classList.add('on'), 5200); }
+    if (t0 === null) { t0 = performance.now(); FX.show(); timers.push(setTimeout(() => $('panel').classList.add('show'), 5900), setTimeout(() => $('tap').classList.add('on'), 6700)); }
   };
-  anchor.onTargetLost = () => { window.__ar.found = false; stats.lostEvents++; };
+  anchor.onTargetLost = () => { window.__ar.found = false; };
 
-  // タップ: 画面のどこをタップしても、光がはじけて結び目が回る
-  $('ar').addEventListener('pointerdown', () => {
-    if (t0 === null || !stage.visible) return;
-    spin = 1; fire((performance.now() - t0) / 1000); $('tap').classList.remove('on');
-  });
+  // タップ: 画面のどこをタップしても、光が糸を伝わる
+  $('ar').onpointerdown = (ev) => {
+    if (t0 === null) return;
+    const s = (performance.now() - t0) / 1000; if (s < 4) return;
+    FX.tap(ev.clientX, ev.clientY, s); $('tap').classList.remove('on');
+    try { navigator.vibrate && navigator.vibrate(18); } catch (e) { /* 端末による */ }
+  };
 
-  const tp = new THREE.Vector3(), tq = new THREE.Quaternion(), ts = new THREE.Vector3();
-  let prev = performance.now(), rotZ = 0;
-  renderer.setAnimationLoop(() => {
-    const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000); prev = now;
-
-    // 名刺を最初に見つけた瞬間に、舞台を画面の中央へ置いて固定する。
-    // 以後は名刺を追わない（手ブレで揺れない。名刺が枠から外れても表示は続く）
-    if (anchor.group.visible && !stageInit) {
-      anchor.group.matrix.decompose(tp, tq, ts);
-      stage.position.set(0, 0, tp.z); stage.quaternion.identity(); stage.scale.copy(ts); stageInit = true;
-    }
-    if (anchor.group.visible) lastSeen = now;
-    stage.visible = stageInit;
-
-    if (t0 !== null) {
-      stats.frames++; if (anchor.group.visible) stats.visible++;
-      const s = (now - t0) / 1000;
-
-      // 0〜1.4秒: 名刺の結び目から、糸が渦をまいて立ちのぼる
-      riseGeo.setDrawRange(0, Math.floor(riseGeo.index.count * ease(s / 1.4) / 3) * 3);
-      rise.material.opacity = 1;
-      // 1.0〜3.2秒: 糸が編まれて、金の結び目になる
-      const w = ease((s - 1.0) / 2.2);
-      knotGeo.setDrawRange(0, Math.floor(knotGeo.index.count * w / 3) * 3);
-      knot.scale.setScalar(0.55 + 0.45 * w);
-      glow.material.opacity = ease((s - 1.0) / 2.2) * (0.75 + 0.15 * Math.sin(s * 2.4));
-      // 結び目はゆっくり回り、ふわふわ浮かぶ
-      spin = Math.max(0, spin - dt * 0.7);
-      rotZ += dt * (0.55 + 5.5 * spin * spin + (s < 3.2 ? 1.8 * (1 - ease((s - 1) / 2.2)) : 0));
-      knotG.rotation.set(0.55 + 0.1 * Math.sin(s * 0.7), 0.15 * Math.sin(s * 0.5), rotZ);
-      knotG.position.z = KNOT_Z + 0.014 * Math.sin(s * 1.6) + 0.04 * spin;
-      // 光の粒
-      const da = dust.geometry.attributes.position;
-      dustSeed.forEach((d, i) => da.setXYZ(i, Math.cos(d.a + s * d.sp) * d.r, Math.sin(d.a + s * d.sp) * d.r * 0.85, d.z + 0.03 * Math.sin(s * 1.2 + d.ph)));
-      da.needsUpdate = true;
-      dust.material.opacity = 0.85 * ease((s - 1.2) / 1.5);
-      // 結ばれた瞬間（3.2秒）に、光がはじける
-      if (burstAt < 0 && s > 3.2) fire(s);
-      const bu = (s - burstAt) / 1.4, ba = burst.geometry.attributes.position;
-      if (burstAt >= 0 && bu >= 0 && bu < 1) { const e = 1 - Math.pow(1 - bu, 3); burstVel.forEach((v, i) => ba.setXYZ(i, v.x * e * 1.6, v.y * e * 1.6, v.z * e * 1.6)); ba.needsUpdate = true; burst.material.opacity = 1 - bu; }
-      else burst.material.opacity = 0;
-      // 札が結び目から飛び出して並ぶ（3.3秒〜）
-      labels.forEach((l, i) => {
-        const u = (s - 3.3 - i * 0.28) / 0.9, k = Math.max(0, Math.min(1, u)), b = easeOutBack(k);
-        l.position.lerpVectors(knotG.position, slots[i], b);
-        const sc = 0.0001 + (1 - 0.0001) * b;
-        l.scale.set(l.userData.base.x * sc, l.userData.base.y * sc, 1);
-        l.material.opacity = Math.min(1, k * 1.6);
-      });
-    }
-    renderer.render(scene, camera);
-  });
+  renderer.setAnimationLoop(() => { if (t0 !== null) FX.draw((performance.now() - t0) / 1000); });
 
   const stop = () => {
-    renderer.setAnimationLoop(null); mindar.stop();
+    renderer.setAnimationLoop(null); mindar.stop(); timers.forEach(clearTimeout); FX.hide();
     $('ar').style.visibility = 'hidden'; ['hint', 'guide', 'close'].forEach((i) => $(i).style.display = 'none');
     $('panel').classList.remove('show'); $('tap').classList.remove('on');
     $('intro').style.display = 'flex'; btn.disabled = false; btn.textContent = 'もう一度写す'; window.__ar.state = 'idle'; window.__ar.found = false;
